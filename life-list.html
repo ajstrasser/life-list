@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Life List">
+<title>The Life List</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;background:#ede8dc;color:#141008;font-family:'Georgia',serif;-webkit-font-smoothing:antialiased}
+input,select,button{font-family:'Georgia',serif}
+input,select{font-size:16px!important}
+input[type="date"]{font-size:14px!important;color-scheme:light}
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-thumb{background:#c4b9a4;border-radius:2px}
+@keyframes up{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 #cc5a1455}70%{box-shadow:0 0 0 7px #cc5a1400}}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+#app{max-width:600px;margin:0 auto;padding:0 16px 80px;opacity:0;transition:opacity .4s}
+#app.ready{opacity:1}
+.row:hover .act{opacity:1!important}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+
+const CATS={
+  work:          {label:"Work",     dot:"◈"},
+  health:        {label:"Health",   dot:"○"},
+  finance:       {label:"Finance",  dot:"◇"},
+  home:          {label:"Home",     dot:"□"},
+  relationships: {label:"People",   dot:"△"},
+  growth:        {label:"Growth",   dot:"◎"},
+  hobbies:       {label:"Hobbies",  dot:"✦"},
+};
+const FREQS=["daily","weekly","monthly","quarterly","annual"];
+const SC={overdue:"#c04040",today:"#cc5a14",soon:"#c49020",fine:"#8a9a70"};
+const SK="lifelist-v3";
+
+const SEED=[
+  {id:1, title:"Morning movement",                   category:"health",        frequency:"daily",     priority:"high",   completed:false,streak:4, note:"Walk, stretch, breathe.",               deadline:""},
+  {id:2, title:"Review today's intentions",          category:"growth",        frequency:"daily",     priority:"high",   completed:false,streak:7, note:"",                                      deadline:""},
+  {id:3, title:"Drink enough water",                 category:"health",        frequency:"daily",     priority:"medium", completed:false,streak:12,note:"",                                      deadline:""},
+  {id:4, title:"Weekly financial check-in",          category:"finance",       frequency:"weekly",    priority:"high",   completed:false,streak:2, note:"Budget, spending, savings.",            deadline:""},
+  {id:5, title:"Settle tab with Brian",              category:"relationships", frequency:"weekly",    priority:"high",   completed:false,streak:0, note:"",                                      deadline:""},
+  {id:6, title:"Fix the car",                        category:"home",          frequency:"weekly",    priority:"high",   completed:false,streak:0, note:"",                                      deadline:""},
+  {id:7, title:"Deep clean one room",                category:"home",          frequency:"weekly",    priority:"medium", completed:false,streak:0, note:"",                                      deadline:""},
+  {id:8, title:"Reach out to someone I care about",  category:"relationships", frequency:"weekly",    priority:"high",   completed:false,streak:3, note:"",                                      deadline:""},
+  {id:9, title:"Read something for pleasure",        category:"hobbies",       frequency:"weekly",    priority:"low",    completed:false,streak:1, note:"",                                      deadline:""},
+  {id:21,title:"Send emails about B1G1",             category:"work",          frequency:"weekly",    priority:"high",   completed:false,streak:0, note:"",                                      deadline:""},
+  {id:10,title:"2026 intention",                     category:"growth",        frequency:"monthly",   priority:"high",   completed:false,streak:0, note:"Tend to the next chapter.",             deadline:""},
+  {id:11,title:"Find an accountant",                 category:"finance",       frequency:"monthly",   priority:"high",   completed:false,streak:0, note:"",                                      deadline:"2026-03-23"},
+  {id:12,title:"Happiness retreat — settle tab",     category:"finance",       frequency:"monthly",   priority:"medium", completed:false,streak:0, note:"",                                      deadline:""},
+  {id:13,title:"Work on Summit Framework",           category:"work",          frequency:"monthly",   priority:"high",   completed:false,streak:0, note:"",                                      deadline:""},
+  {id:14,title:"Monthly budget review",              category:"finance",       frequency:"monthly",   priority:"high",   completed:false,streak:0, note:"Full picture — income, spending, gaps.",deadline:""},
+  {id:15,title:"One intentional social plan",        category:"relationships", frequency:"monthly",   priority:"medium", completed:false,streak:0, note:"",                                      deadline:""},
+  {id:16,title:"Review quarterly goals",             category:"growth",        frequency:"quarterly", priority:"high",   completed:false,streak:0, note:"Am I moving toward who I want to be?",  deadline:""},
+  {id:17,title:"Net worth snapshot",                 category:"finance",       frequency:"quarterly", priority:"high",   completed:false,streak:0, note:"",                                      deadline:""},
+  {id:18,title:"Annual physical + bloodwork",        category:"health",        frequency:"annual",    priority:"high",   completed:false,streak:0, note:"",                                      deadline:""},
+  {id:19,title:"Review insurance & estate docs",     category:"finance",       frequency:"annual",    priority:"medium", completed:false,streak:0, note:"",                                      deadline:""},
+  {id:20,title:"Plan something I've always wanted",  category:"hobbies",       frequency:"annual",    priority:"medium", completed:false,streak:0, note:"Big trip. Big dream.",                  deadline:""},
+];
+
+function loadTasks(){
+  try{
+    const r=localStorage.getItem(SK);
+    if(r){
+      const saved=JSON.parse(r);
+      const savedIds=new Set(saved.map(t=>t.id));
+      const newSeeds=SEED.filter(t=>!savedIds.has(t.id));
+      return [...saved,...newSeeds];
+    }
+    return JSON.parse(JSON.stringify(SEED));
+  }catch{return JSON.parse(JSON.stringify(SEED));}
+}
+function saveTasks(t){try{localStorage.setItem(SK,JSON.stringify(t));}catch{}}
+
+let S={
+  tasks:loadTasks(),
+  freq:"all",
+  catFilter:"all",
+  showAdd:false,
+  form:{title:"",category:"health",frequency:"daily",priority:"medium",note:"",deadline:""},
+  editId:null,
+  saveMsg:"",
+  listening:false,
+};
+let saveTimer,msgTimer;
+
+function set(patch,skipSave){
+  Object.assign(S,patch);
+  if(patch.tasks!==undefined&&!skipSave){
+    saveTasks(S.tasks);
+    clearTimeout(saveTimer);clearTimeout(msgTimer);
+    S.saveMsg="saving…";render();
+    saveTimer=setTimeout(()=>{
+      S.saveMsg="✓ saved";render();
+      msgTimer=setTimeout(()=>{S.saveMsg="";render();},1400);
+    },350);
+    return;
+  }
+  render();
+}
+
+const todayDate=()=>{const d=new Date();return new Date(d.getFullYear(),d.getMonth(),d.getDate());};
+const parseDL=dl=>{if(!dl)return null;const[y,m,d]=dl.split("-").map(Number);return new Date(y,m-1,d);};
+function dlStatus(dl){
+  if(!dl)return null;
+  const diff=Math.round((parseDL(dl)-todayDate())/86400000);
+  if(diff<0) return{label:`${Math.abs(diff)}d overdue`,kind:"overdue"};
+  if(diff===0)return{label:"Due today",kind:"today"};
+  if(diff<=7) return{label:`${diff}d left`,kind:"soon"};
+  return{label:`${diff}d`,kind:"fine"};
+}
+const todayStr=()=>new Date().toISOString().split("T")[0];
+
+// Speech
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let recog=null;
+if(SR){
+  recog=new SR();
+  recog.continuous=false;
+  recog.interimResults=true;
+  recog.lang="en-US";
+  recog.onresult=e=>{
+    S.form.title=Array.from(e.results).map(r=>r[0].transcript).join("");
+    render();
+  };
+  recog.onend=()=>set({listening:false});
+  recog.onerror=()=>set({listening:false});
+}
+function toggleMic(){
+  if(!recog)return;
+  if(S.listening){recog.stop();set({listening:false});return;}
+  if(!S.showAdd){
+    Object.assign(S,{showAdd:true,editId:null,
+      form:{title:"",category:"health",frequency:"daily",priority:"medium",note:"",deadline:""}});
+    render();
+  }
+  setTimeout(()=>{recog.start();set({listening:true});},120);
+}
+
+function toggleTask(id){set({tasks:S.tasks.map(t=>t.id===id?{...t,completed:!t.completed}:t)});}
+function delTask(id){if(!confirm("Remove this task?"))return;set({tasks:S.tasks.filter(t=>t.id!==id)});}
+function startEdit(t){
+  set({form:{title:t.title,category:t.category,frequency:t.frequency,
+    priority:t.priority,note:t.note||"",deadline:t.deadline||""},
+    editId:t.id,showAdd:true},true);
+}
+function saveForm(){
+  if(!S.form.title.trim())return;
+  const blank={title:"",category:"health",frequency:"daily",priority:"medium",note:"",deadline:""};
+  if(S.editId){
+    set({tasks:S.tasks.map(t=>t.id===S.editId?{...t,...S.form}:t),editId:null,showAdd:false,form:blank});
+  } else {
+    set({tasks:[...S.tasks,{...S.form,id:Date.now(),completed:false,streak:0}],showAdd:false,form:blank});
+  }
+}
+
+// ── DOM helpers ──────────────────────────────────────────────────────────────
+function h(tag,props,...kids){
+  const e=document.createElement(tag);
+  Object.entries(props||{}).forEach(([k,v])=>{
+    if(k==="style"&&typeof v==="object")Object.assign(e.style,v);
+    else if(k.startsWith("on"))e.addEventListener(k.slice(2).toLowerCase(),v);
+    else if(k==="cls")e.className=v;
+    else e[k]=v;
+  });
+  kids.flat(99).forEach(c=>{
+    if(c==null||c===false||c===undefined)return;
+    e.appendChild(typeof c==="string"?document.createTextNode(c):c);
+  });
+  return e;
+}
+const div=(p,...k)=>h("div",p,...k);
+const span=(p,...k)=>h("span",p,...k);
+const btn=(p,...k)=>h("button",{style:{cursor:"pointer"},...p},...k);
+
+function pill(label,active,onClick,extraStyle){
+  return btn({
+    style:{padding:"4px 11px",borderRadius:"20px",fontSize:"10px",border:"1px solid",
+      letterSpacing:".08em",textTransform:"capitalize",transition:"all .15s",
+      borderColor:active?"#0a0700":"#c4b9a4",
+      background:active?"#0a0700":"transparent",
+      color:active?"#ede8dc":"#8a7a60",
+      ...(extraStyle||{})},
+    onClick
+  },label);
+}
+
+// ── Render ───────────────────────────────────────────────────────────────────
+function render(){
+  const app=document.getElementById("app");
+  if(!app)return;
+
+  const isDL=S.freq==="deadlines";
+  const isCat=S.catFilter!=="all";
+
+  let visible;
+  if(isDL){
+    visible=S.tasks
+      .filter(t=>t.deadline&&!t.completed)
+      .filter(t=>!isCat||t.category===S.catFilter)
+      .sort((a,b)=>parseDL(a.deadline)-parseDL(b.deadline));
+  } else {
+    visible=S.tasks
+      .filter(t=>S.freq==="all"||t.frequency===S.freq)
+      .filter(t=>!isCat||t.category===S.catFilter);
+  }
+
+  const dlTasks=S.tasks.filter(t=>t.deadline&&!t.completed);
+  const overdue=dlTasks.filter(t=>{const s=dlStatus(t.deadline);return s&&(s.kind==="overdue"||s.kind==="today");});
+  const dDone=S.tasks.filter(t=>t.frequency==="daily"&&t.completed).length;
+  const dTotal=S.tasks.filter(t=>t.frequency==="daily").length;
+  const pct=dTotal?Math.round(dDone/dTotal*100):0;
+
+  const groups=isDL
+    ?[{f:"deadlines",items:visible}]
+    :FREQS.map(f=>({f,items:visible.filter(t=>t.frequency===f)})).filter(g=>g.items.length);
+
+  // ── Header ──────────────────────────────────────────────────────────────
+  const header=div({style:{padding:"32px 0 16px",borderBottom:"1px solid #ccc3b0"}},
+    div({style:{fontSize:"9px",letterSpacing:".22em",color:"#8a7a60",textTransform:"uppercase",marginBottom:"5px"}},
+      new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})
+    ),
+    div({style:{display:"flex",justifyContent:"space-between",alignItems:"baseline"}},
+      h("h1",{style:{fontSize:"26px",fontWeight:"400",letterSpacing:"-.02em",color:"#0a0700"}},"The Life List"),
+      div({style:{display:"flex",alignItems:"center",gap:"10px"}},
+        S.saveMsg&&span({style:{fontSize:"9px",letterSpacing:".06em",animation:"fadein .3s",
+          color:S.saveMsg.includes("✓")?"#8a9a70":"#aaa090"}},S.saveMsg),
+        overdue.length>0&&btn({
+          style:{fontSize:"10px",color:"#c04040",background:"#c0404015",border:"1px solid #c0404040",
+            borderRadius:"20px",padding:"2px 9px",letterSpacing:".06em"},
+          onClick:()=>set({freq:"deadlines"},true)
+        },`⚑ ${overdue.length} overdue`),
+        span({style:{fontSize:"11px",color:"#8a7a60",fontStyle:"italic"}},`${pct}% today`)
+      )
+    ),
+    div({style:{height:"2px",background:"#d0c8b8",borderRadius:"1px",marginTop:"9px",overflow:"hidden"}},
+      div({style:{height:"100%",background:"#cc5a14",width:`${pct}%`,borderRadius:"1px",transition:"width .5s"}})
+    )
+  );
+
+  // ── Frequency filter row ─────────────────────────────────────────────────
+  const freqRow=div({style:{display:"flex",gap:"5px",padding:"12px 0 6px",flexWrap:"wrap",alignItems:"center"}},
+    pill("all",S.freq==="all",()=>set({freq:"all"},true)),
+    ...FREQS.map(f=>pill(f,S.freq===f,()=>set({freq:f},true))),
+    btn({
+      style:{padding:"4px 11px",borderRadius:"20px",fontSize:"10px",border:"1px solid",
+        letterSpacing:".08em",transition:"all .15s",
+        borderColor:S.freq==="deadlines"?"#0a0700":dlTasks.length?"#c4b9a4":"#ddd5c5",
+        background:S.freq==="deadlines"?"#0a0700":"transparent",
+        color:S.freq==="deadlines"?"#ede8dc":dlTasks.length?"#8a7a60":"#c4b9a4"},
+      onClick:()=>set({freq:"deadlines"},true)
+    },`deadlines${dlTasks.length?` (${dlTasks.length})`:""}`),
+    // mic
+    btn({
+      title:recog?"Tap to dictate a task":"Voice input not supported in this browser",
+      style:{marginLeft:"4px",width:"30px",height:"30px",borderRadius:"50%",
+        border:`1.5px solid ${S.listening?"#cc5a14":"#c4b9a4"}`,
+        background:S.listening?"#cc5a1422":"transparent",
+        fontSize:"14px",display:"flex",alignItems:"center",justifyContent:"center",
+        opacity:recog?1:.3,animation:S.listening?"pulse 1.1s infinite":"none",
+        transition:"border-color .2s,background .2s"},
+      onClick:toggleMic
+    },"🎙"),
+    // add button
+    btn({
+      style:{marginLeft:"auto",padding:"4px 12px",borderRadius:"20px",fontSize:"10px",
+        border:"1px solid #cc5a14",background:S.showAdd?"#cc5a14":"transparent",
+        color:S.showAdd?"#fff":"#cc5a14",letterSpacing:".08em"},
+      onClick:()=>{
+        if(!S.showAdd)Object.assign(S,{editId:null,
+          form:{title:"",category:"health",frequency:"daily",priority:"medium",note:"",deadline:""}});
+        set({showAdd:!S.showAdd},true);
+      }
+    },S.showAdd?"cancel":"+ add")
+  );
+
+  // ── Category filter row ──────────────────────────────────────────────────
+  const catRow=div({style:{display:"flex",gap:"5px",paddingBottom:"14px",flexWrap:"wrap"}},
+    pill("all areas",S.catFilter==="all",()=>set({catFilter:"all"},true),{fontSize:"9px",padding:"3px 10px"}),
+    ...Object.entries(CATS).map(([k,c])=>btn({
+      style:{padding:"3px 10px",borderRadius:"20px",fontSize:"9px",border:"1px solid",
+        letterSpacing:".06em",textTransform:"capitalize",transition:"all .15s",
+        borderColor:S.catFilter===k?"#0a0700":"#d0c8b8",
+        background:S.catFilter===k?"#0a0700":"transparent",
+        color:S.catFilter===k?"#ede8dc":"#9a8a70"},
+      onClick:()=>set({catFilter:S.catFilter===k?"all":k},true)
+    },`${c.dot} ${c.label}`))
+  );
+
+  // ── Add / Edit form ──────────────────────────────────────────────────────
+  const formEl=!S.showAdd?null:div({
+    style:{background:"#e4ddd0",border:"1px solid #c4b9a4",borderRadius:"7px",
+      padding:"14px",marginBottom:"18px",animation:"up .3s both"}},
+    h("input",{
+      type:"text",value:S.form.title,placeholder:"What needs tending to…",
+      autofocus:true,
+      style:{width:"100%",background:"transparent",border:"none",outline:"none",
+        borderBottom:"1px solid #b0a898",padding:"4px 0 7px",color:"#0a0700",
+        fontStyle:"italic",marginBottom:"10px",display:"block"},
+      onInput:e=>{S.form.title=e.target.value;},
+      onKeydown:e=>{if(e.key==="Enter")saveForm();}
+    }),
+    div({style:{display:"flex",gap:"7px",flexWrap:"wrap",marginBottom:"9px",alignItems:"center"}},
+      // category
+      h("select",{
+        style:{padding:"5px 8px",background:"#ede8dc",border:"1px solid #c4b9a4",
+          borderRadius:"5px",color:"#0a0700",outline:"none"},
+        onChange:e=>{S.form.category=e.target.value;render();}
+      },...Object.entries(CATS).map(([v,c])=>
+        h("option",{value:v,selected:S.form.category===v},`${c.dot} ${c.label}`)
+      )),
+      // frequency
+      h("select",{
+        style:{padding:"5px 8px",background:"#ede8dc",border:"1px solid #c4b9a4",
+          borderRadius:"5px",color:"#0a0700",outline:"none"},
+        onChange:e=>{S.form.frequency=e.target.value;render();}
+      },...FREQS.map(f=>h("option",{value:f,selected:S.form.frequency===f},f))),
+      // priority
+      h("select",{
+        style:{padding:"5px 8px",background:"#ede8dc",border:"1px solid #c4b9a4",
+          borderRadius:"5px",color:"#0a0700",outline:"none"},
+        onChange:e=>{S.form.priority=e.target.value;render();}
+      },...[["high","high"],["medium","medium"],["low","low"]].map(([v,l])=>
+        h("option",{value:v,selected:S.form.priority===v},l)
+      )),
+      // deadline
+      div({style:{display:"flex",alignItems:"center",gap:"6px"}},
+        span({style:{fontSize:"10px",color:"#8a7a60",letterSpacing:".06em",whiteSpace:"nowrap"}},"deadline"),
+        h("input",{
+          type:"date",value:S.form.deadline||"",min:todayStr(),
+          style:{padding:"4px 8px",background:"#ede8dc",border:"1px solid #c4b9a4",
+            borderRadius:"5px",color:S.form.deadline?"#0a0700":"#a09080",outline:"none"},
+          onChange:e=>{S.form.deadline=e.target.value;render();}
+        }),
+        S.form.deadline&&btn({
+          style:{background:"none",border:"none",color:"#a09080",fontSize:"16px",padding:"0 2px"},
+          onClick:()=>{S.form.deadline="";render();}
+        },"×")
+      )
+    ),
+    h("input",{
+      type:"text",value:S.form.note||"",placeholder:"Short note (optional)",
+      style:{width:"100%",background:"transparent",border:"none",outline:"none",
+        borderBottom:"1px solid #c4b9a4",padding:"3px 0 5px",color:"#7a6a50",
+        fontStyle:"italic",fontSize:"13px",marginBottom:"12px",display:"block"},
+      onInput:e=>{S.form.note=e.target.value;}
+    }),
+    btn({
+      style:{padding:"6px 16px",background:"#0a0700",color:"#ede8dc",border:"none",
+        borderRadius:"5px",fontSize:"11px",letterSpacing:".1em",textTransform:"uppercase"},
+      onClick:saveForm
+    },"Save")
+  );
+
+  // ── Task groups ──────────────────────────────────────────────────────────
+  const taskGroups=groups.map(({f,items})=>
+    div({style:{marginBottom:"24px"}},
+      div({style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"6px"}},
+        span({style:{fontSize:"9px",letterSpacing:".2em",textTransform:"uppercase",color:"#8a7a60"}},
+          f==="deadlines"?"upcoming deadlines":f),
+        div({style:{flex:"1",height:"1px",background:"#ccc3b0"}}),
+        f!=="deadlines"&&span({style:{fontSize:"9px",color:"#aaa090"}},
+          `${items.filter(t=>t.completed).length}/${items.length}`)
+      ),
+      items.length===0&&span({style:{fontSize:"12px",color:"#aaa090",fontStyle:"italic",
+        padding:"8px 6px",display:"block"}},"No tasks with deadlines yet."),
+      ...items.map((t,i)=>{
+        const cat=CATS[t.category]||CATS.growth;
+        const ds=dlStatus(t.deadline);
+        return div({cls:"row",
+          style:{borderBottom:"1px solid #ddd5c5",transition:"opacity .2s",
+            opacity:t.completed?"0.42":"1",
+            background:ds?.kind==="overdue"?"#c0404008":"transparent",
+            animation:`up .3s ${i*.025}s both`}},
+          div({style:{display:"flex",alignItems:"center",gap:"9px",padding:"7px 6px"}},
+            btn({
+              style:{width:"15px",height:"15px",minWidth:"15px",borderRadius:"50%",
+                border:`1.5px solid ${t.completed?"#a09080":"#cc5a14"}`,
+                background:t.completed?"#cc5a1430":"transparent",
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:"8px",color:"#cc5a14",flexShrink:"0",transition:"all .2s"},
+              onClick:()=>toggleTask(t.id)
+            },t.completed?"✓":""),
+            span({style:{flex:"1",fontSize:"13px",lineHeight:"1.3",
+              color:t.completed?"#8a7a60":"#0a0700",
+              textDecoration:t.completed?"line-through":"none",
+              textDecorationColor:"#a09080"}},t.title),
+            ds&&!t.completed
+              ?span({style:{fontSize:"9px",whiteSpace:"nowrap",letterSpacing:".04em",
+                  color:SC[ds.kind],background:SC[ds.kind]+"18",
+                  border:`1px solid ${SC[ds.kind]}44`,borderRadius:"20px",padding:"2px 7px",
+                  fontStyle:ds.kind==="overdue"?"italic":"normal"}},ds.label)
+              :span({style:{fontSize:"9px",color:"#aaa090",whiteSpace:"nowrap",letterSpacing:".03em"}},
+                  `${cat.dot} ${cat.label}${t.streak>1?" · "+t.streak+"×":""}`),
+            div({cls:"act",style:{display:"flex",gap:"3px",opacity:"0",transition:"opacity .15s"}},
+              btn({
+                style:{width:"20px",height:"20px",border:"none",background:"transparent",
+                  color:"#8a7a60",fontSize:"12px",borderRadius:"3px",
+                  display:"flex",alignItems:"center",justifyContent:"center"},
+                onClick:()=>startEdit(t)
+              },"✎"),
+              btn({
+                style:{width:"20px",height:"20px",border:"none",background:"transparent",
+                  color:"#c06060",fontSize:"14px",borderRadius:"3px",
+                  display:"flex",alignItems:"center",justifyContent:"center"},
+                onClick:()=>delTask(t.id)
+              },"×")
+            )
+          ),
+          t.note&&!t.completed&&span({style:{fontSize:"10px",color:"#9a8a6a",fontStyle:"italic",
+            padding:"0 6px 6px 30px",display:"block"}},t.note)
+        );
+      })
+    )
+  );
+
+  // ── Empty state ──────────────────────────────────────────────────────────
+  const empty=visible.length===0&&!isDL&&div({
+    style:{textAlign:"center",padding:"48px 0",color:"#aaa090",fontStyle:"italic",fontSize:"13px"}
+  },"Nothing here yet.");
+
+  // ── Assemble ─────────────────────────────────────────────────────────────
+  app.innerHTML="";
+  [header,freqRow,catRow,formEl,...taskGroups,empty].forEach(el=>{
+    if(el)app.appendChild(el);
+  });
+
+  // Re-focus title input if form is open (preserve cursor)
+  if(S.showAdd){
+    const inp=app.querySelector("input[type=text]");
+    if(inp&&document.activeElement!==inp){
+      inp.focus();
+      const len=inp.value.length;
+      inp.setSelectionRange(len,len);
+    }
+  }
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+window.addEventListener("DOMContentLoaded",()=>{
+  render();
+  setTimeout(()=>{
+    const app=document.getElementById("app");
+    if(app)app.classList.add("ready");
+  },40);
+});
+</script>
+</body>
+</html>
